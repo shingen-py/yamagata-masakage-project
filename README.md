@@ -1,0 +1,1 @@
+# yamagata-masakage-project
