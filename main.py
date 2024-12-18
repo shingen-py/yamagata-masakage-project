@@ -7,9 +7,9 @@ import json
 import threading
 import os
 from dotenv import load_dotenv
-from typing import Callable
 from queue import Queue
 import socket
+from dash import Dash, html, dcc, callback, Output, Input
 
 # 環境変数の読み込み
 load_dotenv('api.env')
@@ -23,6 +23,32 @@ HEADERS = {
     "Authorization": "Bearer " + API_KEY,
     "OpenAI-Beta": "realtime=v1"
 }
+
+
+app = Dash()
+
+app.layout = [
+    html.Div(
+        children=[
+            html.H1(children='山県昌景', style={'textAlign':'left'}),
+            html.P(children='山県昌景（やまがた まさかげ、生没年不詳）は、鎌倉時代の武士である。', style={'textAlign':'left', 'marginBottom': 10}),
+            dcc.Textarea(
+            id='input_text',
+            placeholder='',
+            style={
+                'width': '90%',
+                'height': '800px',
+                'boarderRadius': 10,
+                'padding': 10,
+                'border': '1px solid #AAA',
+                'readonly': True
+                }
+            ),            
+        ], style={'textAlign':'left', 'paddingLeft': 20, 'paddingRight': 20}
+    ),
+    html.Button('開始', id='submit-val', n_clicks=0, style={'marginLeft': 20, 'marginTop': 10}),
+]
+
 
 
 class RealTimeAgent():
@@ -333,5 +359,20 @@ async def main():
         tg.create_task(agent2.stream_audio_and_receive_response())
         tg.create_task(agent2.receive_from_ai())
 
+@app.callback(
+    Output('input_text', 'value'),
+    Input('submit-val', 'n_clicks')
+)
+def update_output(n_clicks):
+    if n_clicks > 0:
+        asyncio.run(main())
+        return "***ラジオを開始しました。***"
+    else:
+        return ""
+
 if __name__ == "__main__":
-    asyncio.run(main())
+
+    app.run(debug=True)
+
+    # asyncio.run(main())
+
