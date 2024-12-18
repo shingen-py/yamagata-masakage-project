@@ -1,0 +1,20 @@
+{
+    "instructions": {
+        "initial": {
+            "instruction_path": {
+                "やまがた" : "data/instructions/initial.txt",
+                "まさかげ" : "data/instructions/initial.txt"
+            },
+            "number_of_executions": 1,
+            "next_state": "conversation"
+        },
+        "conversation": {
+            "instruction_path": {
+                "やまがた" : "data/instructions/yamagata.txt",
+                "まさかげ" : "data/instructions/masakage.txt"
+            },
+            "number_of_executions": 5,
+            "next_state": "end"
+        }
+    }
+}
