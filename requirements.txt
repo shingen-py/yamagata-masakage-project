@@ -2,3 +2,4 @@ numpy==2.2.0
 PyAudio==0.2.14
 websockets==13.1
 python-dotenv
+dash
