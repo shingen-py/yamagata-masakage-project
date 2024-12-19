@@ -26,6 +26,13 @@ HEADERS = {
 }
 
 
+instructions = {}
+# prompt.jsonを読み込む
+with open("./data/prompts.json", "r", encoding="utf-8") as f:
+    prompt = f.read()
+    instructions = json.loads(prompt)["instructions"]
+    print(instructions)
+
 app = Dash()
 
 text_area = html.Div(
@@ -62,7 +69,6 @@ app.layout = [
     )
 ]
 
-
 class RealTimeAgent():
     def __init__(
             self,
@@ -73,6 +79,7 @@ class RealTimeAgent():
             port: int = 5000,
             dst_port: int = 5001,
             is_first_agent: bool = False,
+            instructions: dict = {},
             audio_receive_queue: Queue[bytes] = Queue(),
             active_audio_received: str = '',
             websocket: websockets.WebSocketClientProtocol = None):
@@ -83,6 +90,7 @@ class RealTimeAgent():
         self.port = port
         self.dst_port = dst_port
         self.is_first_agent = is_first_agent
+        self.instructions = instructions
         self.audio_receive_queue = audio_receive_queue
         self.active_audio_received = active_audio_received
         self.websocket = websocket
@@ -149,6 +157,8 @@ class RealTimeAgent():
 
     # サーバーから音声を受信してキューに格納する非同期関数
     async def receive_audio_to_queue(self):
+        number_of_audio_received = 0
+        current_state = "initial"
         current_message = ""
         while True:
             response = await self.websocket.recv()
@@ -175,6 +185,36 @@ class RealTimeAgent():
                         == "response.audio_transcript.done":
                     print("\n", end="", flush=True)
                     current_message = ""
+
+                    # 設定の更新
+                    number_of_audio_received = number_of_audio_received + 1
+                    if number_of_audio_received >= self.instructions[current_state]["number_of_executions"]:
+                        next_state = self.instructions[current_state]["next_state"]
+
+                        if next_state == "end":
+                            # TODO
+                            # print(f"\n{self.name}: ラジオを終了します。")
+                            # break
+                            pass
+                        else:
+                            current_state = next_state
+                            number_of_audio_received = 0
+                            print(f"\n{self.name}: 状態が変更されました。-> {current_state}")
+
+                            setting = ""
+                            with open(instructions[current_state]["instruction_path"][self.name], encoding="utf-8") as f:
+                                setting = f.read()
+                                settings = {
+                                    "modalities": ["audio", "text"],
+                                    "instructions":  f"あなたはラジオパーソナリティパーソナリティ「{self.name}」です。{setting}",
+                                    "voice": "shimmer",
+                                    "turn_detection": {
+                                        "type": "server_vad",
+                                        "threshold": 0.5,
+                                    }
+                                }
+                                print("\n", settings)
+                            await self.websocket.send(json.dumps(settings))
 
                     # 応答が完了したら、その応答をTCP/IPで相手のAIに送信する
                     socket_client = socket.socket(socket.AF_INET,
@@ -292,98 +332,57 @@ class RealTimeAgent():
 
 
 async def main():
-    prompt = """
-    ラジオ番組「やまがた まさかげの温泉ラジオ」のパーソナリティ「やまがた」と「まさかげ」として進行してください。
 
-    主に「やまがた」が5000文字程度、山梨の温泉情報を語ります。その内容には温泉そのものの魅力だけでなく、
-    周辺環境、文化、歴史、アクセス、食事、おすすめの楽しみ方も含めます。最後に「やまがた」が「まさかげ」に話を振る形で終わります。
-
-    トークの内容は以下の条件を満たしてください：
-    - ユーザーが提供する特定の温泉情報をもとに構築する。
-    - 「やまがた」の話し方は熱意があり、親しみやすい語り口調を採用する。
-    - 温泉に関する詳細情報や魅力的なエピソードを織り交ぜる。
-    - 「まさかげ」は最後に登場し、次の展開を促す形で話を受け取る。
-
-    # Steps
-
-    1. **イントロダクション**
-    「やまがた」がリスナーに温泉トピックを親しみやすく紹介。山梨の魅力や今回取り上げる温泉の期待感を高める。
-
-    2. **メインセグメント**
-    - 「やまがた」が以下の内容を盛り込んで語る：
-        - 温泉の基本情報（所在地、歴史、泉質、効能）。
-        - 温泉の特長やユニークな点。
-        - 周辺地域の見どころや観光スポット。
-        - 季節ごとの楽しみ方やイベント。
-        - 温泉の利用方法やマナー。
-    - 情景描写や具体的なエピソードを交えながら、熱意を持って語る。
-
-    3. **まさかげへの話振りで終わる**
-    「やまがた」が最後に「まさかげ」に話を振り、次の展開を期待させる形で締める。
-
-    # Output Format
-
-    - **語り形式**：一貫して「やまがた」が語り、最後に「まさかげ」に話を振る形とする。
-    - **自然な話し言葉**：ラジオ放送中の口調を模倣し、リスナーに語りかける形を保つ。
-    - **段落構成**：読みやすくリズムのある段落で構成する。
-
-    # Examples
-
-    ---
-
-    みなさん、こんにちは！「やまがた まさかげの温泉ラジオ」へようこそ！今日も元気いっぱいで
-    お届けしますよ～！さて、本日はですね、山梨の隠れた名湯をご紹介します。その名も「[温泉名]」。ここは歴史ある温泉で、実は…（ここから200文字程度でトークを展開）
-
-    …さてさて、こんな感じで語ってきたけど、まさかげさんはどう思う？
-
-    ---
-
-    （例は短縮版です。実際のトークはこれを拡大し、詳細な情報を加えて構成してください。）
-
-    # Notes
-
-    - **語りの一貫性**：「やまがた」が話を進行し、「まさかげ」に話を振るタイミングは一番最後とする。
-    - **テンションの維持**：熱意と親しみやすさを持ち、リスナーを飽きさせない。
-    - **ユーザー提供情報の活用**：温泉情報を深掘りし、それを軸に周辺トピックを広げる
-    """
-
-    agent1_settings = {
-                    "modalities": ["audio", "text"],
-                    "instructions": f"あなたはラジオパーソナリティパーソナリティ「やまがた」です。{prompt}",
-                    "voice": "alloy",
-                    "turn_detection": {
-                        "type": "server_vad",
-                        "threshold": 0.5,
-                    }
-                }
-
-    agent2_settings = {
-                    "modalities": ["audio", "text"],
-                    "instructions":  f"あなたはラジオパーソナリティパーソナリティ「まさかげ」です。{prompt}",
-                    "voice": "shimmer",
-                    "turn_detection": {
-                        "type": "server_vad",
-                        "threshold": 0.5,
-                    }
-                }
-    
     try:
+        # やまがたのプロンプトを読み込む
+        agent1_instructions = ""
+        with open(instructions["initial"]["instruction_path"]["やまがた"], "r", encoding="utf-8") as f:
+            agent1_instructions = f.read()
+
+        agent1_settings = {
+                        "modalities": ["audio", "text"],
+                        "instructions": f"あなたはラジオパーソナリティパーソナリティ「やまがた」です。{agent1_instructions}",
+                        "voice": "alloy",
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "threshold": 0.5,
+                        }
+                    }
+        
         agent1 = RealTimeAgent(
             WS_URL, HEADERS, agent1_settings, "やまがた",
-            15000, 15001, is_first_agent=True)
+            15000, 15001, is_first_agent=True, instructions=instructions)
+        
+        # まさかげのプロンプトを読み込む    
+        agent2_instructions = ""
+        with open(instructions["initial"]["instruction_path"]["まさかげ"], "r", encoding="utf-8") as f:
+            agent2_instructions = f.read()    
+
+        agent2_settings = {
+                        "modalities": ["audio", "text"],
+                        "instructions":  f"あなたはラジオパーソナリティパーソナリティ「まさかげ」です。{agent2_instructions}",
+                        "voice": "shimmer",
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "threshold": 0.5,
+                        }
+                    }
+        
         agent2 = RealTimeAgent(
             WS_URL, HEADERS, agent2_settings, "まさかげ",
-            15001, 15000, is_first_agent=False)
+            15001, 15000, is_first_agent=False, instructions=instructions)
 
         async with asyncio.TaskGroup() as tg:
             tg.create_task(agent1.stream_audio_and_receive_response())
             tg.create_task(agent1.receive_from_ai())
             tg.create_task(agent2.stream_audio_and_receive_response())
-            tg.create_task(agent2.receive_from_ai())        
+            tg.create_task(agent2.receive_from_ai())
+
     except Exception as e:
         import traceback
         text_area.children.append(html.P(str(e)))
         text_area.children.append(html.P(traceback.format_stack()))
+
 
 is_started = False
 
@@ -416,6 +415,5 @@ if __name__ == "__main__":
     
     # print ("Server is running...")
     app.run()    
-
 
 
