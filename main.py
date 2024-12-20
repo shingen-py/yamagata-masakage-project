@@ -11,6 +11,7 @@ from queue import Queue
 import socket
 from dash import Dash, html, dcc, callback, Output, Input
 import time
+import logging
 
 # 環境変数の読み込み
 load_dotenv('api.env')
@@ -34,6 +35,11 @@ with open("./data/prompts.json", "r", encoding="utf-8") as f:
     print(instructions)
 
 app = Dash()
+
+logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger('werkzeug').setLevel(logging.ERROR)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("PIL").setLevel(logging.WARNING)
 
 text_area = html.Div(
                 id='input_text',
@@ -204,16 +210,35 @@ class RealTimeAgent():
                             setting = ""
                             with open(instructions[current_state]["instruction_path"][self.name], encoding="utf-8") as f:
                                 setting = f.read()
+                                ins = f"あなたはラジオパーソナリティパーソナリティ「{self.name}」です。{setting}"
+                                ins += " また、山梨の温泉情報を取得するのに温泉名をtoolsに与えて呼んでください"
                                 settings = {
                                     "modalities": ["audio", "text"],
-                                    "instructions":  f"あなたはラジオパーソナリティパーソナリティ「{self.name}」です。{setting}",
+                                    "instructions": ins,
                                     "voice": "shimmer",
                                     "turn_detection": {
                                         "type": "server_vad",
                                         "threshold": 0.5,
-                                    }
+                                    },
+                                    "tools": [
+                                        {
+                                            "type": "function",
+                                            "name": "get_hotspring_yamanashi_info",
+                                            "description": "山梨の温泉情報を取得します。",
+                                            "parameters": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "query": {
+                                                        "type": "string",
+                                                        "description": "温泉名"
+                                                    }
+                                                },
+                                            },
+                                            "required": ["query"]
+                                        },
+                                    ]
                                 }
-                                print("\n", settings)
+                                # print("\n", settings)
                             await self.websocket.send(json.dumps(settings))
 
                     # 応答が完了したら、その応答をTCP/IPで相手のAIに送信する
@@ -226,14 +251,14 @@ class RealTimeAgent():
                     self.active_audio_received = ""
 
                 # こちらの発話がスタートしたことをサーバが取得したことを確認する
-                if "type" in response_data and response_data["type"] \
+                elif "type" in response_data and response_data["type"] \
                         == "input_audio_buffer.speech_started":
                     # すでに存在する取得したAI発話音声をリセットする
                     while not self.audio_receive_queue.empty():
                         self.audio_receive_queue.get()
 
                 # サーバーからの音声データをキューに格納
-                if "type" in response_data and response_data["type"] \
+                elif "type" in response_data and response_data["type"] \
                         == "response.audio.delta":
                     base64_audio_response = response_data["delta"]
                     if base64_audio_response:
@@ -241,6 +266,29 @@ class RealTimeAgent():
                             base64_audio_response
                         )
                         self.audio_receive_queue.put(pcm16_audio)
+                
+                elif "type" in response_data and response_data["type"] \
+                        == "response.output_item.done":
+                    if "item" in response_data and "type" in response_data["item"] and \
+                            response_data["item"]["type"] == "function_call":
+                        
+                        print(f"\n{self.name}: output_item.done")
+                        print(response_data)
+
+                        arguments = response_data["item"]["arguments"]
+                        ret = get_hotspring_yamanashi_info(arguments[0])
+                        
+                        await self.websocket.send({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": "item.call_id",
+                                "output": json.dumps({ret}),
+                            },
+                        })
+                        await self.websocket.send({
+                            "type": "response.create",
+                        })                        
 
             await asyncio.sleep(0)
 
@@ -331,6 +379,18 @@ class RealTimeAgent():
                 p.terminate()
 
 
+def get_hotspring_yamanashi_info(hotspring_name: str):
+    data = \
+    {
+        "ほったらかし温泉" : "山梨県北杜市にある温泉です。",
+        "石和温泉" : "山梨県甲州市にある温泉です。",
+    }
+    if hotspring_name in data:
+        return data[hotspring_name]
+    else:
+        return "その温泉情報はありません。"
+
+
 async def main():
 
     try:
@@ -339,14 +399,34 @@ async def main():
         with open(instructions["initial"]["instruction_path"]["やまがた"], "r", encoding="utf-8") as f:
             agent1_instructions = f.read()
 
+        ins = f"あなたはラジオパーソナリティパーソナリティ「やまがた」です。{agent1_instructions}"
+        ins += " また、山梨の温泉情報を取得するのに温泉名をtoolsに与えて呼んでください"
+
         agent1_settings = {
                         "modalities": ["audio", "text"],
-                        "instructions": f"あなたはラジオパーソナリティパーソナリティ「やまがた」です。{agent1_instructions}",
+                        "instructions": ins,
                         "voice": "alloy",
                         "turn_detection": {
                             "type": "server_vad",
                             "threshold": 0.5,
-                        }
+                        },
+                        "tools": [
+                            {
+                                "type": "function",
+                                "name": "get_hotspring_yamanashi_info",
+                                "description": "山梨の温泉情報を取得します。",
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": {
+                                            "type": "string",
+                                            "description": "温泉名"
+                                        }
+                                    },
+                                }
+                            }
+                        ],
+                        "tool_choice": "auto"
                     }
         
         agent1 = RealTimeAgent(
@@ -356,16 +436,35 @@ async def main():
         # まさかげのプロンプトを読み込む    
         agent2_instructions = ""
         with open(instructions["initial"]["instruction_path"]["まさかげ"], "r", encoding="utf-8") as f:
-            agent2_instructions = f.read()    
+            agent2_instructions = f.read()
+
+        ins = f"あなたはラジオパーソナリティパーソナリティ「まさかげ」です。{agent2_instructions}"
+        ins += " また、山梨の温泉情報を取得するのに温泉名をtoolsに与えて呼んでください"
 
         agent2_settings = {
                         "modalities": ["audio", "text"],
-                        "instructions":  f"あなたはラジオパーソナリティパーソナリティ「まさかげ」です。{agent2_instructions}",
+                        "instructions": ins,
                         "voice": "shimmer",
                         "turn_detection": {
                             "type": "server_vad",
                             "threshold": 0.5,
-                        }
+                        },
+                        "tools": [
+                            {
+                                "type": "function",
+                                "name": "get_hotspring_yamanashi_info",
+                                "description": "山梨の温泉情報を取得します。",
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": {
+                                            "type": "string",
+                                            "description": "温泉名"
+                                        }
+                                    },
+                                },"required": ["query"]
+                            }
+                        ]
                     }
         
         agent2 = RealTimeAgent(
