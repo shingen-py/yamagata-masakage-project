@@ -173,7 +173,7 @@ class RealTimeAgent():
                     print(response_data["delta"], end="", flush=True)
                     self.active_audio_received += response_data["delta"]
                     if current_message == "":
-                        current_message += f"{self.name}: {response_data["delta"]}"
+                        current_message += f"{self.name}: {response_data['delta']}"
                         text_area.children.append(html.P(f"{self.name}: {current_message}"))
                     else:
                         current_message += response_data["delta"]
