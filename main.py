@@ -1,4 +1,3 @@
-
 import asyncio
 import websockets
 import pyaudio
@@ -56,8 +55,34 @@ text_area = html.Div(
 app.layout = [
     html.Div(
         children=[
-            html.H1(children='山県昌景', style={'textAlign':'left', 'fontSize': 50, 'marginBottom': 3}),
-            html.P(children='山県昌景（やまがた まさかげ、生没年不詳）は、鎌倉時代の武士である。', style={'textAlign':'left', 'marginBottom': 10, 'fontSize': 30}),
+            html.H1(children='山県昌景（やまがた まさかげ、生没年不詳）', style={'textAlign':'left', 'fontSize': 50, 'marginBottom': 3}),
+            html.P(children='武田四天王の一人である山県昌景は、山梨の名湯・川浦温泉の開発を信玄から命じられ、現在もその子孫が「山県館」として温泉旅館を守り続けている。',
+                   style={'textAlign': 'left', 'marginBottom': 10, 'fontSize': 30}),
+            html.Div(
+                html.Video(
+                    src='assets/movie.mp4',
+                    controls=False,
+                    autoPlay=True,
+                    loop=True,
+                    muted=True,
+                    style={
+                        'width': '70%',
+                        'borderRadius': '15px',
+                        'boxShadow': '0 4px 8px rgba(0, 0, 0, 0.2)',
+                        'backgroundColor': '#000',
+                    }
+                ),
+                style={
+                    'display': 'flex',
+                    'justifyContent': 'center',
+                    'alignItems': 'center',
+                    'margin': '30px auto',
+                    'padding': '20px',
+                    'backgroundColor': '#F8F8F8',
+                    'borderRadius': '20px',
+                    'width': '90%',
+                }
+            ),
             text_area,           
         ], style={'textAlign':'left', 'paddingLeft': 20, 'paddingRight': 20, 'backgroundColor': '#FDFDFD',}
     ),
